@@ -74,13 +74,13 @@ SL_WEAK void app_process_action(void)
 
 void notif(sl_simple_timer_t *timer, void *data){
 
-  uint8_t* request = data;
+  uint8_t* cnx = data;
 
   int32_t temperature = read_temp();
 
         app_log_info("%ld  timeout : %ld  \n", temperature,timer->timeout_ms);
 
-       sl_bt_gatt_server_send_notification(*request,
+       sl_bt_gatt_server_send_notification(*cnx,
                                            27,
                                            2,
                                            (const uint8_t*)&temperature);
@@ -131,7 +131,8 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     case sl_bt_evt_connection_opened_id:
       app_log_info("%s: connection_opened!\n", __FUNCTION__);
       sl_sensor_rht_init();
-      sl_simple_led_init_instances()
+      sl_simple_led_init_instances();
+
       break;
 
     // -------------------------------
@@ -200,13 +201,34 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
       if(evt->data.evt_gatt_server_user_write_request.characteristic == gattdb_digital){
           app_log_info("%s: lecture_d_une_caracteristique CCCD\n", __FUNCTION__ );
 
-          app_log_info("len: %d",evt->data.evt_gatt_server_user_write_request.value.len);
-          for(int i = 0; i < evt->data.evt_gatt_server_user_write_request.value.len; i++ )
-          {
+          //with response
+          if(evt->data.evt_gatt_server_user_write_request.att_opcode==18){
+              app_log_info("write with response\n");
 
-              app_log_info("data: %d",evt->data.evt_gatt_server_user_write_request.value.data[i]);
+          if(evt->data.evt_gatt_server_user_write_request.value.data[0] == 0){
+              sl_led_led0.turn_off(sl_led_led0.context);
+              sl_bt_gatt_server_send_user_write_response(evt->data.evt_gatt_server_user_write_request.connection,
+                                                         evt->data.evt_gatt_server_user_write_request.characteristic,
+                                                        0);
+
 
           }
+          if(evt->data.evt_gatt_server_user_write_request.value.data[0] == 1){
+              sl_led_led0.turn_on(sl_led_led0.context);
+              sl_bt_gatt_server_send_user_write_response(evt->data.evt_gatt_server_user_write_request.connection,
+                                                                       evt->data.evt_gatt_server_user_write_request.characteristic,
+                                                                       0);
+
+                    }
+          }
+
+          //without response
+          if(evt->data.evt_gatt_server_user_write_request.att_opcode==82){
+              app_log_info("write without response\n");
+
+          }
+       //   app_log_info("op code: %d\n",evt->data.evt_gatt_server_user_write_request. att_opcode);
+
       }
 
       break;
