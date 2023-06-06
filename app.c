@@ -36,17 +36,13 @@
 #include "sl_sensor_rht.h"
 #include "gatt_db.h"
 #include "sl_simple_timer.h"
+#include "sl_simple_led_instances.h"
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
    int compteur = 0;
  sl_simple_timer_t timer;
+static uint8_t connectionCharac;
 
-
- typedef struct {
-   uint8_t cnx;
-   uint16_t characteristic;
-
- } connexion_context ;
 /**************************************************************************//**
  * Application Init.
  *****************************************************************************/
@@ -77,15 +73,15 @@ SL_WEAK void app_process_action(void)
 }
 
 void notif(sl_simple_timer_t *timer, void *data){
-  connexion_context * request = data;
 
+  uint8_t* request = data;
 
   int32_t temperature = read_temp();
 
-        app_log_info("%ld  timeout : %ld  charac: %d\n", temperature,timer->timeout_ms,request->characteristic);
+        app_log_info("%ld  timeout : %ld  \n", temperature,timer->timeout_ms);
 
-       sl_bt_gatt_server_send_notification(request->cnx,
-                                           request->characteristic,
+       sl_bt_gatt_server_send_notification(*request,
+                                           27,
                                            2,
                                            (const uint8_t*)&temperature);
 
@@ -135,6 +131,7 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     case sl_bt_evt_connection_opened_id:
       app_log_info("%s: connection_opened!\n", __FUNCTION__);
       sl_sensor_rht_init();
+      sl_simple_led_init_instances()
       break;
 
     // -------------------------------
@@ -182,13 +179,13 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
             app_log_info("%d\n",evt->data.evt_gatt_server_characteristic_status.status_flags);
 
              if(evt->data.evt_gatt_server_characteristic_status.client_config_flags){
-                 connexion_context connex;
-                 connex.cnx = evt->data.evt_gatt_server_characteristic_status.connection;
-                 connex.characteristic =  evt->data.evt_gatt_server_characteristic_status.characteristic;
+
+                 connectionCharac = evt->data.evt_gatt_server_characteristic_status.connection;
+
                  sl_simple_timer_start(&timer,
                                        1000,
                                        notif,
-                                       &connex,
+                                       &connectionCharac,
                                        true);
              }
 
@@ -197,6 +194,21 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
                  sl_simple_timer_stop(&timer);
              }
        }
+      break;
+
+    case sl_bt_evt_gatt_server_user_write_request_id:
+      if(evt->data.evt_gatt_server_user_write_request.characteristic == gattdb_digital){
+          app_log_info("%s: lecture_d_une_caracteristique CCCD\n", __FUNCTION__ );
+
+          app_log_info("len: %d",evt->data.evt_gatt_server_user_write_request.value.len);
+          for(int i = 0; i < evt->data.evt_gatt_server_user_write_request.value.len; i++ )
+          {
+
+              app_log_info("data: %d",evt->data.evt_gatt_server_user_write_request.value.data[i]);
+
+          }
+      }
+
       break;
     // -------------------------------
     // Default event handler.
