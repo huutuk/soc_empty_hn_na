@@ -31,10 +31,22 @@
 #include "app_assert.h"
 #include "sl_bluetooth.h"
 #include "app.h"
-
+#include "app_log.h"
+#include "temperature.h"
+#include "sl_sensor_rht.h"
+#include "gatt_db.h"
+#include "sl_simple_timer.h"
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
+   int compteur = 0;
+ sl_simple_timer_t timer;
 
+
+ typedef struct {
+   uint8_t cnx;
+   uint16_t characteristic;
+
+ } connexion_context ;
 /**************************************************************************//**
  * Application Init.
  *****************************************************************************/
@@ -44,6 +56,12 @@ SL_WEAK void app_init(void)
   // Put your additional application init code here!                         //
   // This is called once during start-up.                                    //
   /////////////////////////////////////////////////////////////////////////////
+  ///
+  app_log_info("%s\n", __FUNCTION__);
+
+
+
+
 }
 
 /**************************************************************************//**
@@ -58,9 +76,25 @@ SL_WEAK void app_process_action(void)
   /////////////////////////////////////////////////////////////////////////////
 }
 
+void notif(sl_simple_timer_t *timer, void *data){
+  connexion_context * request = data;
+
+
+  int32_t temperature = read_temp();
+
+        app_log_info("%ld  timeout : %ld  charac: %d\n", temperature,timer->timeout_ms,request->characteristic);
+
+       sl_bt_gatt_server_send_notification(request->cnx,
+                                           request->characteristic,
+                                           2,
+                                           (const uint8_t*)&temperature);
+
+}
+
 /**************************************************************************//**
  * Bluetooth stack event handler.
- * This overrides the dummy weak implementation.
+ * This overrides the
+ * dummy weak implementation.
  *
  * @param[in] evt Event coming from the Bluetooth stack.
  *****************************************************************************/
@@ -99,11 +133,15 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     // -------------------------------
     // This event indicates that a new connection was opened.
     case sl_bt_evt_connection_opened_id:
+      app_log_info("%s: connection_opened!\n", __FUNCTION__);
+      sl_sensor_rht_init();
       break;
 
     // -------------------------------
     // This event indicates that a connection was closed.
     case sl_bt_evt_connection_closed_id:
+      app_log_info("%s: connection_closed!\n", __FUNCTION__);
+      sl_sensor_rht_deinit();
       // Generate data for advertising
       sc = sl_bt_legacy_advertiser_generate_data(advertising_set_handle,
                                                  sl_bt_advertiser_general_discoverable);
@@ -115,13 +153,57 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
       app_assert_status(sc);
       break;
 
+
+
     ///////////////////////////////////////////////////////////////////////////
     // Add additional event handlers here as your application requires!      //
     ///////////////////////////////////////////////////////////////////////////
+    case sl_bt_evt_gatt_server_user_read_request_id:
+         app_log_info("%s: lecture_d_une_caracteristique\n", __FUNCTION__ );
+         if ( evt->data.evt_gatt_server_user_read_request.characteristic == gattdb_temperature){
+             int32_t temperature = read_temp();
+             uint16_t sent_len;
+         app_log_info("%ld \n", read_temp());
 
+          sl_bt_gatt_server_send_user_read_response(evt->data.evt_gatt_server_user_read_request.connection,
+                                                               evt->data.evt_gatt_server_user_read_request.characteristic,
+                                                               0,
+                                                               2,
+                                                             (const uint8_t*)&temperature,
+                                                             &sent_len );
+         }
+         break;
+
+    case sl_bt_evt_gatt_server_characteristic_status_id:
+      if(evt->data.evt_gatt_server_characteristic_status.characteristic == gattdb_temperature &&
+          evt->data.evt_gatt_server_characteristic_status.status_flags)
+        {
+            app_log_info("%s: lecture_d_une_caracteristique CCCD\n", __FUNCTION__ );
+            app_log_info("%d\n",evt->data.evt_gatt_server_characteristic_status.status_flags);
+
+             if(evt->data.evt_gatt_server_characteristic_status.client_config_flags){
+                 connexion_context connex;
+                 connex.cnx = evt->data.evt_gatt_server_characteristic_status.connection;
+                 connex.characteristic =  evt->data.evt_gatt_server_characteristic_status.characteristic;
+                 sl_simple_timer_start(&timer,
+                                       1000,
+                                       notif,
+                                       &connex,
+                                       true);
+             }
+
+             if(!evt->data.evt_gatt_server_characteristic_status.client_config_flags){
+
+                 sl_simple_timer_stop(&timer);
+             }
+       }
+      break;
     // -------------------------------
     // Default event handler.
     default:
       break;
   }
+
+
+
 }
